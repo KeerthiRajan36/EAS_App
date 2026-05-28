@@ -96,7 +96,7 @@
           }
         },
         "url": {
-          "raw": "http://127.0.0.1:5000/assests/",
+          "raw": "http://127.0.0.1:8000/assests/",
           "protocol": "http",
           "host": [
             "127",

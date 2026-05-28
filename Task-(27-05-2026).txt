@@ -1,0 +1,764 @@
+Python Task
+-------
+models
+-------
+allocation.py
+--------------
+from sqlalchemy import Column, Integer, ForeignKey, DateTime
+from sqlalchemy.sql import func
+from app.database import Base
+from sqlalchemy.orm import relationship
+
+
+class AssetAllocation(Base):
+    __tablename__ = "asset_allocations"
+
+    id = Column(Integer, primary_key=True)
+
+    asset_id = Column(Integer, ForeignKey("assets.id"))
+    employee_id = Column(Integer, ForeignKey("employees.id"))
+
+    assigned_date = Column(DateTime, default=func.now())
+    returned_date = Column(DateTime, nullable=True)
+    asset = relationship("Asset")
+    employee = relationship("Employee")
+
+asset.py 
+--------------
+from sqlalchemy import Column, Integer, String, Boolean
+from app.database import Base
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    asset_tag = Column(String(100), unique=True)
+    asset_name = Column(String(255))
+    category = Column(String(100))
+    status = Column(String(50), default="Available")
+    is_deleted = Column(Boolean, default=False)
+
+employee.py 
+--------------
+from sqlalchemy import Column, Integer, String
+from app.database import Base
+
+
+class Employee(Base):
+    __tablename__ = "employees"
+
+    id = Column(Integer, primary_key=True)
+    employee_code = Column(String(100), unique=True)
+    full_name = Column(String(255))
+    departname = Column(String(100))
+    email = Column(String(255))
+
+maintenance.py 
+--------------
+from sqlalchemy import Column, Integer, ForeignKey, String, Text
+from app.database import Base
+from sqlalchemy.orm import relationship
+
+
+class MaintenanceRequest(Base):
+    __tablename__ = "maintenance_requests"
+
+    id = Column(Integer, primary_key=True)
+
+    asset_id = Column(Integer, ForeignKey("assets.id"))
+
+    issue_description = Column(Text)
+
+    maintenance_status = Column(String(50), default="Pending")
+
+    asset = relationship("Asset")
+
+user.py
+--------------
+from sqlalchemy import Column, Integer, String, Boolean
+from app.database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(100), unique=True)
+    email = Column(String(100), unique=True)
+    password = Column(String(255))
+    role = Column(String(50), default="Employee")
+    is_active = Column(Boolean, default=True)
+
+Schemas
+--------
+allocation.py
+---------------
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+
+class AssignAssetSchema(BaseModel):
+    asset_id: int
+    employee_id: int
+
+
+class ReturnAssetsSchema(BaseModel):
+    allocation_id: int
+
+
+class AllocationResponse(BaseModel):
+
+    id: int
+    asset_id: int
+    employee_id: int
+    assigned_date: datetime
+    returned_date: Optional[datetime]
+
+ 
+
+asset.py
+---------------
+from pydantic import BaseModel
+
+
+class AssetCreate(BaseModel):
+    asset_tag: str
+    asset_name: str
+    category: str
+
+
+class AssetUpdate(BaseModel):
+    asset_tag: str
+    asset_name: str
+    category: str
+    status: str
+    is_deleted: bool
+
+
+class AssetResponse(BaseModel):
+
+    id: int
+    asset_tag: str
+    asset_name: str
+    category: str
+    status: str
+
+
+
+auth.py
+---------------
+from pydantic import BaseModel
+
+
+class RegisterSchema(BaseModel):
+    username: str
+    email: str
+    password: str
+    role: str
+
+
+class LoginSchema(BaseModel):
+    email: str
+    password: str
+
+
+maintenance.py
+---------------
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+class RaiseMaintenanceSchema(BaseModel):
+
+    asset_id: int
+    issue_description: Optional[str] = None
+
+class UpdateMaintenanceSchema(BaseModel):
+
+    maintenance_status: Optional[str] = None
+
+class MaintenanceResponse(BaseModel):
+
+    id: int
+    asset_id: int
+    maintenance_status: str
+
+
+services
+---------
+allocation_service.py
+---------------
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+class RaiseMaintenanceSchema(BaseModel):
+
+    asset_id: int
+    issue_description: Optional[str] = None
+
+class UpdateMaintenanceSchema(BaseModel):
+
+    maintenance_status: Optional[str] = None
+
+class MaintenanceResponse(BaseModel):
+
+    id: int
+    asset_id: int
+    maintenance_status: str
+
+
+asset_service.py
+---------------
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+from app.models.asset import Asset
+from app.schemas.asset import AssetCreate
+
+VALID_STATUS = ["Available", "Assigned", "Maintenance", "Retired"]
+
+
+def create_asset(request:AssetCreate, db: Session):
+    existing_assest = (
+        db.query(Asset).filter(request.asset_tag == request.asset_tag).first()
+    )
+
+    if existing_assest:
+        raise HTTPException(status_code=400, detail="Asset tag already exists")
+
+    asset = Asset(
+        asset_tag=request.asset_tag,
+        assest_name=request.asset_name,
+        category=request.category,
+    )
+
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+
+    return asset
+
+
+def update_asset(asset_id, request, db: Session):
+
+    asset = (
+        db.query(Asset).filter(Asset.id == asset_id, Asset.is_deleted == False).first()
+    )
+
+    if not asset:
+
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    update_data = request.dict(exclude_unset=True)
+
+    if "status" in update_data:
+
+        if update_data["status"] not in VALID_STATUS:
+
+            raise HTTPException(status_code=400, detail="Invalid status")
+
+    for key, value in update_data.items():
+
+        setattr(asset, key, value)
+
+    db.commit()
+
+    db.refresh(asset)
+
+    return asset
+
+
+def soft_delete_asset(asset_id, db: Session):
+
+    asset = (
+        db.query(Asset).filter(Asset.id == asset_id, Asset.is_deleted == False).first()
+    )
+
+    if not asset:
+
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    asset.is_deleted = True
+
+    db.commit()
+
+    return {"message": "Asset deleted successfully"}
+
+
+def get_all_assets(db: Session):
+
+    return db.query(Asset).filter(Asset.is_deleted == False).all()
+
+
+def get_asset_by_id(asset_id, db: Session):
+
+    asset = (
+        db.query(Asset).filter(Asset.id == asset_id, Asset.is_deleted == False).first()
+    )
+
+    if not asset:
+
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    return asset
+
+auth_service.py
+---------------
+from sqlalchemy.orm import Session
+
+from app.models.user import User
+
+from app.utils.password import hash_password, verify_password
+
+from app.utils.jwt_handler import create_access_token
+
+
+def register_user(request, db: Session):
+    existing_user = db.query(User).filter(User.email == request.email).first()
+
+    if existing_user:
+        return None
+
+    user = User(
+        username=request.username,
+        email=request.email,
+        password=hash_password(request.password),
+        role=request.role,
+    )
+
+    db.add(user)
+    db.commit()
+
+    return user
+
+
+def login_user(request, db: Session):
+
+    user = db.query(User).filter(User.email == request.email).first()
+
+    if not user:
+        return None
+
+    if not verify_password(request.password, user.password):
+        return None
+
+    token = create_access_token({"user_id": user.id, "role": user.role})
+
+    return {"access_token": token, "role": user.role}
+
+
+maintenance_service.py
+----------------------
+from fastapi import HTTPException
+
+from sqlalchemy.sql import func
+
+from app.models.asset import Asset
+from app.models.maintenance import (
+    MaintenanceRequest
+)
+
+VALID_STATUS = [
+    "Pending",
+    "In Progress",
+    "Completed",
+    "Rejected"
+]
+
+def raise_maintenance_request(
+    request,
+    current_user,
+    db
+):
+
+    asset = db.query(Asset).filter(
+        Asset.id == request.asset_id,
+        Asset.is_deleted == False
+    ).first()
+
+    if not asset:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Asset not found"
+        )
+
+    maintenance = MaintenanceRequest(
+        asset_id=request.asset_id,
+        issue_description=request.issue_description,
+    )
+
+    asset.status = "Maintenance"
+
+    db.add(maintenance)
+
+    db.commit()
+
+    db.refresh(maintenance)
+
+    return maintenance
+
+def update_maintenance(
+    maintenance_id,
+    request,
+    db
+):
+
+    maintenance = db.query(
+        MaintenanceRequest
+    ).filter(
+        MaintenanceRequest.id == maintenance_id
+    ).first()
+
+    if not maintenance:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Maintenance request not found"
+        )
+
+    update_data = request.dict(
+        exclude_unset=True
+    )
+
+    if "maintenance_status" in update_data:
+
+        if update_data[
+            "maintenance_status"
+        ] not in VALID_STATUS:
+
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid maintenance status"
+            )
+
+    for key, value in update_data.items():
+
+        setattr(maintenance, key, value)
+
+    asset = db.query(Asset).filter(
+        Asset.id == maintenance.asset_id
+    ).first()
+
+    if maintenance.maintenance_status == "Completed":
+
+        maintenance.completed_at = func.now()
+
+        asset.status = "Available"
+
+    db.commit()
+
+    db.refresh(maintenance)
+
+    return maintenance
+
+def get_maintenance_history(
+    asset_id,
+    db
+):
+
+    asset = db.query(Asset).filter(
+        Asset.id == asset_id
+    ).first()
+
+    if not asset:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Asset not found"
+        )
+
+    history = db.query(
+        MaintenanceRequest
+    ).filter(
+        MaintenanceRequest.asset_id == asset_id
+    ).all()
+
+    return history
+
+def get_all_maintenance_requests(db):
+
+    return db.query(
+        MaintenanceRequest
+    ).all()
+
+Config.py
+---------------
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = "HS256"
+
+database.py
+---------------
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+DATABASE_URL = "mysql+pymysql://root:root@localhost/eam_db"
+
+engine = create_engine(DATABASE_URL)
+
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+Base = declarative_base()
+
+
+main.py
+--------
+from fastapi import FastAPI
+from app.database import Base, engine
+
+from app.routers import auth, assests, allocations, maintenance
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Enterprise Asset Management")
+
+app.include_router(auth.router)
+app.include_router(assests.router)
+app.include_router(allocations.router)
+app.include_router(maintenance.router)
+
+
+@app.get("/")
+def home():
+    return {"message": "EAM API Running"}
+
+
+SQL Task
+--------
+-- 1. Find Most Assigned Assets
+SELECT 
+    a.asset_id,
+    a.asset_name,
+    COUNT(aa.asset_id) AS assignment_count
+FROM assets a
+JOIN asset_assignments aa 
+    ON a.asset_id = aa.asset_id
+GROUP BY a.asset_id, a.asset_name
+ORDER BY assignment_count DESC;
+
+
+-- 2. Employees Holding Multiple Assets
+SELECT 
+    e.employee_id,
+    e.employee_name,
+    COUNT(aa.asset_id) AS total_assets
+FROM employees e
+JOIN asset_assignments aa 
+    ON e.employee_id = aa.employee_id
+WHERE aa.return_date IS NULL
+GROUP BY e.employee_id, e.employee_name
+HAVING COUNT(aa.asset_id) > 1;
+
+
+-- 3. Monthly Maintenance Cost Report
+SELECT 
+    YEAR(maintenance_date) AS year,
+    MONTH(maintenance_date) AS month,
+    SUM(cost) AS total_maintenance_cost
+FROM maintenance_requests
+GROUP BY YEAR(maintenance_date), MONTH(maintenance_date)
+ORDER BY year DESC, month DESC;
+
+
+-- 4. Assets Not Used for Last 6 Months
+SELECT 
+    a.asset_id,
+    a.asset_name,
+    MAX(aa.assigned_date) AS last_used_date
+FROM assets a
+LEFT JOIN asset_assignments aa
+    ON a.asset_id = aa.asset_id
+GROUP BY a.asset_id, a.asset_name
+HAVING MAX(aa.assigned_date) < CURRENT_DATE - INTERVAL 6 MONTH
+   OR MAX(aa.assigned_date) IS NULL;
+
+
+-- 5. Asset Utilization Percentage
+SELECT 
+    a.asset_id,
+    a.asset_name,
+    ROUND(
+        (
+            COUNT(CASE WHEN aa.return_date IS NULL THEN 1 END) * 100.0
+        ) / COUNT(aa.asset_id),
+        2
+    ) AS utilization_percentage
+FROM assets a
+LEFT JOIN asset_assignments aa
+    ON a.asset_id = aa.asset_id
+GROUP BY a.asset_id, a.asset_name;
+
+
+-- 6. Department-wise Asset Allocation Report
+SELECT 
+    d.department_name,
+    COUNT(aa.asset_id) AS total_allocated_assets
+FROM departments d
+JOIN employees e 
+    ON d.department_id = e.department_id
+JOIN asset_assignments aa 
+    ON e.employee_id = aa.employee_id
+WHERE aa.return_date IS NULL
+GROUP BY d.department_name
+ORDER BY total_allocated_assets DESC;
+
+
+-- 7. Top 5 Expensive Assets
+SELECT 
+    asset_id,
+    asset_name,
+    purchase_cost
+FROM assets
+ORDER BY purchase_cost DESC
+LIMIT 5;
+
+
+-- 8. Assets Under Maintenance with Pending Requests
+SELECT 
+    a.asset_id,
+    a.asset_name,
+    mr.request_id,
+    mr.issue_description,
+    mr.status
+FROM assets a
+JOIN maintenance_requests mr
+    ON a.asset_id = mr.asset_id
+WHERE mr.status = 'Pending';
+
+
+-- 9. Employee Asset Audit Report Using JOINs
+SELECT 
+    e.employee_id,
+    e.employee_name,
+    d.department_name,
+    a.asset_name,
+    aa.assigned_date,
+    aa.return_date
+FROM employees e
+JOIN departments d
+    ON e.department_id = d.department_id
+JOIN asset_assignments aa
+    ON e.employee_id = aa.employee_id
+JOIN assets a
+    ON aa.asset_id = a.asset_id
+ORDER BY e.employee_name;
+
+
+-- 10. Rank Departments by Asset Value Using Window Functions
+SELECT 
+    d.department_name,
+    SUM(a.purchase_cost) AS total_asset_value,
+    RANK() OVER (
+        ORDER BY SUM(a.purchase_cost) DESC
+    ) AS department_rank
+FROM departments d
+JOIN employees e
+    ON d.department_id = e.department_id
+JOIN asset_assignments aa
+    ON e.employee_id = aa.employee_id
+JOIN assets a
+    ON aa.asset_id = a.asset_id
+GROUP BY d.department_name;
+
+
+
+-- Departments
+INSERT INTO departments (department_id, department_name) VALUES
+(1, 'IT'),
+(2, 'HR'),
+(3, 'Finance'),
+(4, 'Operations');
+
+
+
+-- Employees
+INSERT INTO employees (employee_id, employee_name, department_id, email) VALUES
+(101, 'Arun Kumar', 1, 'arun@company.com'),
+(102, 'Priya Sharma', 1, 'priya@company.com'),
+(103, 'Rahul Verma', 2, 'rahul@company.com'),
+(104, 'Sneha Iyer', 3, 'sneha@company.com'),
+(105, 'Vikram Singh', 4, 'vikram@company.com');
+
+
+
+-- Assets
+INSERT INTO assets (
+    asset_id,
+    asset_name,
+    asset_type,
+    purchase_cost,
+    purchase_date,
+    status
+) VALUES
+(201, 'Dell Latitude 5420', 'Laptop', 85000, '2024-01-15', 'Assigned'),
+
+(202, 'HP ProBook 450', 'Laptop', 72000, '2024-02-10', 'Assigned'),
+
+(203, 'iPhone 14', 'Mobile', 65000, '2024-03-05', 'Available'),
+
+(204, 'Samsung Monitor 27"', 'Monitor', 18000, '2024-01-20', 'Assigned'),
+
+(205, 'MacBook Pro M2', 'Laptop', 165000, '2024-04-12', 'Maintenance'),
+
+(206, 'Lenovo ThinkPad', 'Laptop', 92000, '2024-02-22', 'Assigned'),
+
+(207, 'Canon Printer', 'Printer', 25000, '2023-12-01', 'Available'),
+
+(208, 'iPad Air', 'Tablet', 58000, '2024-03-18', 'Assigned');
+
+
+
+-- Asset Assignments
+INSERT INTO asset_assignments (
+    assignment_id,
+    asset_id,
+    employee_id,
+    assigned_date,
+    return_date
+) VALUES
+
+(301, 201, 101, '2025-01-10', NULL),
+
+(302, 202, 102, '2025-02-15', NULL),
+
+(303, 204, 101, '2025-03-01', NULL),
+
+(304, 206, 104, '2025-01-25', NULL),
+
+(305, 208, 103, '2025-02-18', NULL),
+
+(306, 203, 105, '2024-01-10', '2024-05-20'),
+
+(307, 207, 105, '2024-02-12', '2024-03-15');
+
+
+
+
+
+-- Maintenance Requests
+INSERT INTO maintenance_requests (
+    request_id,
+    asset_id,
+    issue_description,
+    maintenance_date,
+    cost,
+    status
+) VALUES
+
+(401, 205, 'Battery replacement issue', '2025-03-15', 12000, 'Pending'),
+
+(402, 201, 'Keyboard malfunction', '2025-02-10', 2500, 'Completed'),
+
+(403, 204, 'Display flickering', '2025-04-05', 3500, 'Pending'),
+
+(404, 207, 'Paper jam issue', '2025-01-12', 1500, 'Completed');

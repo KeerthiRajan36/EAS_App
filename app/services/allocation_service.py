@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.asset import Asset
 from app.models.employee import Employee
+from app.models.user import User
 from app.models.allocation import AssetAllocation
 
 VALID_ASSET_STATUS = ["Available", "Assigned", "Maintenance", "Retired"]
@@ -12,14 +13,18 @@ VALID_ASSET_STATUS = ["Available", "Assigned", "Maintenance", "Retired"]
 def assign_asset(request, current_user, db: Session):
     asset = (
         db.query(Asset)
-        .filter(Asset.id == request.id, Asset.is_deleted == False)
+        .filter(Asset.id == request.asset_id, Asset.is_deleted == False)
         .first()
     )
 
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    employee = db.query(Employee).filter(Employee.id == request.employee_id).first()
+    employee = (
+        db.query(User)
+        .filter(User.id == request.employee_id, User.role == "Employee")
+        .first()
+    )
 
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not Found")

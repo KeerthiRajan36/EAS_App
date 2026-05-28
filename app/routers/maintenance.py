@@ -26,8 +26,7 @@ allow_admin_manager = RoleChecker(["Admin", "Manager"])
 def create_maintenance_request(
     request: RaiseMaintenanceSchema,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-    authorized: bool = Depends(allow_admin_manager),
+    current_user=Depends(allow_admin_manager),
 ):
 
     return raise_maintenance_request(request, current_user, db)
@@ -38,8 +37,7 @@ def update_maintenance_request(
     maintenance_id: int,
     request: UpdateMaintenanceSchema,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-    authorized: bool = Depends(allow_admin_manager),
+    current_user= Depends(allow_admin_manager),
 ):
 
     return update_maintenance(maintenance_id, request, db)

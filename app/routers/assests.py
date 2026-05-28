@@ -23,15 +23,16 @@ router = APIRouter(prefix="/assets", tags=["Assets"])
 allow_admin_manager = RoleChecker(["Admin", "Manager"])
 
 
+8
+
 @router.post("/create")
 def add_asset(
     request: AssetCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-    authorized: bool = Depends(allow_admin_manager),
+    current_user=Depends(allow_admin_manager),
 ):
 
-    print(request)
+    print(current_user.username)
     return create_asset(request, db)
 
 
@@ -40,8 +41,7 @@ def edit_asset(
     asset_id: int,
     request: AssetUpdate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-    authorized: bool = Depends(allow_admin_manager),
+    current_user=Depends(allow_admin_manager),
 ):
 
     return update_asset(asset_id, request, db)
@@ -51,8 +51,7 @@ def edit_asset(
 def delete_asset(
     asset_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-    authorized: bool = Depends(allow_admin_manager),
+    current_user=Depends(allow_admin_manager),
 ):
 
     return soft_delete_asset(asset_id, db)

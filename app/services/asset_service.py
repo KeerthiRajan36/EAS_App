@@ -8,7 +8,7 @@ VALID_STATUS = ["Available", "Assigned", "Maintenance", "Retired"]
 
 def create_asset(request:AssetCreate, db: Session):
     existing_assest = (
-        db.query(Asset).filter(request.asset_tag == request.asset_tag).first()
+        db.query(Asset).filter(Asset.asset_tag == request.asset_tag).first()
     )
 
     if existing_assest:
@@ -16,7 +16,7 @@ def create_asset(request:AssetCreate, db: Session):
 
     asset = Asset(
         asset_tag=request.asset_tag,
-        assest_name=request.asset_name,
+        asset_name=request.asset_name,
         category=request.category,
     )
 

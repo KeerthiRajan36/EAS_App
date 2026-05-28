@@ -7,12 +7,12 @@ from sqlalchemy.orm import relationship
 class AssetAllocation(Base):
     __tablename__ = "asset_allocations"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
 
     asset_id = Column(Integer, ForeignKey("assets.id"))
-    employee_id = Column(Integer, ForeignKey("employees.id"))
-
+    employee_id = Column(Integer, ForeignKey("users.id"))
+    assigned_by = Column(Integer)
     assigned_date = Column(DateTime, default=func.now())
     returned_date = Column(DateTime, nullable=True)
     asset = relationship("Asset")
-    employee = relationship("Employee")
+    employee = relationship("User")
